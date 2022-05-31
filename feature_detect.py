@@ -19,21 +19,21 @@ def SIFT_matcher(img1, img2, ContrastThreshold, EdgeThreshold):
     kp1, des1 = detector.detectAndCompute(img1, None)
     kp2, des2 = detector.detectAndCompute(img2, None)
 
-    # img1_copy = img1
-    # img2_copy = img2
-    # img1_copy = cv2.drawKeypoints(img1, kp1, img1_copy, color=(255, 0, 0))
-    # img2_copy = cv2.drawKeypoints(img2, kp2, img2_copy, color=(255, 0, 0))
+    """img1_copy = img1
+    img2_copy = img2
+    img1_copy = cv2.drawKeypoints(img1, kp1, img1_copy, color=(255, 0, 0))
+    img2_copy = cv2.drawKeypoints(img2, kp2, img2_copy, color=(255, 0, 0))
     #
-    # plt.imshow(img1_copy)
-    # plt.show()
-    # plt.imshow(img2_copy)
-    # plt.show()
+    plt.imshow(img1_copy)
+    plt.show()
+    plt.imshow(img2_copy)
+    plt.show()"""
 
     FLANN_INDEX_LSH = 0
     # ORB index params
     # index_params = dict(algorithm=FLANN_INDEX_LSH, table_number=4, key_size=6, multi_probe_level=1)
     # SIFT index params
-    index_params = dict(algorithm=FLANN_INDEX_LSH, trees=6)
+    index_params = dict(algorithm=FLANN_INDEX_LSH, trees=7)
     search_params = dict(checks=100)
 
     flann = cv2.FlannBasedMatcher(index_params, search_params)
@@ -43,9 +43,12 @@ def SIFT_matcher(img1, img2, ContrastThreshold, EdgeThreshold):
     # store all the good matches as per Lowe's ratio test.
     good = []
     for m, n in matches:
-        if m.distance < 0.7 * n.distance:
+        if m.distance < 0.67 * n.distance:
             good.append(m)
 
+    M = None
+
+    print("Anzahl good matches: {}".format(len(good)))
     if len(good) > MIN_MATCH_COUNT:
         src_pts = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
         dst_pts = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
@@ -70,10 +73,10 @@ def SIFT_matcher(img1, img2, ContrastThreshold, EdgeThreshold):
 
     img3 = cv2.drawMatches(img1, kp1, img2, kp2, good, None, **draw_params)
 
-    # Plot with Mathplot
-    # plt.imshow(img3, 'gray'), plt.show()
+    """# Plot with Mathplot
+    plt.imshow(img3, 'gray'), plt.show()"""
 
-    return img2, M
+    return img2, M, dst
 
 if __name__ == "__main__":
     img1 = cv2.imread('Bilder/Target/Taschenrechner_Target_3.jpg', 0)
