@@ -1,6 +1,8 @@
 """
 object detection for robothon use case
 """
+from json import tool
+from tkinter import Frame
 import cv2
 import numpy as np
 from datetime import datetime
@@ -11,6 +13,7 @@ from feature_detect import SIFT_matcher
 import robotHelper
 from robodk import robomath
 import time
+import sys
 
 def get_image(cam, use_kinect=True, use_live=False):
     # start video
@@ -114,7 +117,8 @@ def device_localisation(Scene_Image):
     rubberCenters = []
     if(len(rubber)>=4):
         for h in rubber:
-            if(cv2.contourArea(h)>300):
+            #print(cv2.contourArea(h))
+            if(cv2.contourArea(h)>250):
                 M = cv2.moments(h) #get the contour moment
                 rubberCenters.append([int(M["m10"] / M["m00"]),int(M["m01"] / M["m00"])]) #calculate the center
     else:
@@ -170,7 +174,7 @@ def calculateTransform(robot, cam, numPics):
         cv2.imshow("Image", cv2.resize(img, (1600,900)))
         cv2.waitKey(100)
         rubberPoints = device_localisation(img)
-        if rubberPoints is not None:
+        if rubberPoints is not None and len(rubberPoints) == 4:
             rubberCenters.append(rubberPoints)
     rubberCenters = np.average(rubberCenters, axis=0)
     if rubberCenters is None:
@@ -205,12 +209,12 @@ def calculateTransform(robot, cam, numPics):
     M = M_TOOL2BASE @ M_CAM2TOOL @ M_CAL2CAM
     calc_pose = robomath.Pose_2_TxyzRxyz(np.matmul(M,calc_corner))
 
-    #calc_pose[2] = ?? #TODO: fix the offset again?
+    calc_pose[2] = 44.326996 #TODO: fix the offset again?
     return calc_pose
 
 def find_calculator(robot,cam):
     pose = calculateTransform(robot,cam,2)
-    #print(pose)
+    print(pose)
     rPose = np.array(robomath.Pose_2_TxyzRxyz(robot.Pose()))
 
     rPose[0] = pose[0] #+ cos(-pose[5])*camOffset[0] - sin(-pose[5])*camOffset[1]
@@ -223,10 +227,154 @@ def find_calculator(robot,cam):
     pose = calculateTransform(robot,cam,2)
     return pose
     
+### Task Positions
+def Tool(targets, robot, get ,speedFactor = 1):
+    #### Pick the tool form its place or place the tool at the place
+    #### for take tool get == True, for place tool get == False ####
+    speed = 50*speedFactor
+    acceleration = 75*speedFactor
+    robot.setSpeed(speed,speed/2,acceleration,acceleration)
+    # Gripper
+    if get == True:
+        robotHelper.open_gripper_soft(robot)
+    elif get == False:
+        robotHelper.close_gripper(robot)
+    # App Tool
+    robotHelper.MoveJ(robot, targets["App_Tool"])
+    # Gripper
+    if get == True:
+        robotHelper.open_gripper_soft(robot)
+    elif get == False:
+        robotHelper.close_gripper(robot)
+    # Pick Tool
+    robotHelper.MoveJ(robot, targets["Pick_Tool"])
+    # Gripper
+    if get == True:
+        robotHelper.close_gripper_soft(robot)
+    elif get == False:
+        robotHelper.open_gripper_soft(robot)
+    # App Tool
+    robotHelper.MoveJ(robot, targets["App_Tool"])
+
+#def Box(targets, robot, Box, speedFactor = 1):
+#    #### Move Battery to Box 1 or 2
+#    #### for Box 1 Box == True, for Box 2 Box == False
+#    speed = 50*speedFactor
+#    acceleration = 75*speedFactor
+#    robot.setSpeed(speed,speed/2,acceleration,acceleration)
+#    ### Box 1
+#    if Box == True:
+#        robotHelper.close_gripper(robot)
+#        robotHelper.MoveL(robot, targets["Box1"])
+#        robotHelper.open_gripper(robot)
+#    ### Box 2
+#    elif Box == False:
+#        robotHelper.close_gripper(robot)
+#        robotHelper.MoveL(robot, targets["Box2"])
+#        robotHelper.open_gripper(robot)
+
+
+def Cover(targets, robot, speedFactor = 1):
+    speed = 50*speedFactor
+    acceleration = 75*speedFactor
+    robot.setSpeed(speed,speed/2,acceleration,acceleration)
+    # Get the Tool
+    Tool(targets, robot, True, speed_mult)
+    # Close the gripper becaus of the topl
+    robotHelper.close_gripper(robot)
+    # App Clip
+    robotHelper.MoveJ(robot, targets["App_Clip"])
+    # Go into Push Position for Clip
+    robotHelper.MoveJ(robot, targets["Open_Clip"])
+    # Open the Clip that the Cover is free
+    #robotHelper.MoveJ(robot, targets["Push_Clip"])
+    robotHelper.Rotate_toolframe(robot, 0, 5*np.pi/180 ,0)
+    robotHelper.MoveL_toolframe(robot, 0,0,-10)
+    robotHelper.MoveJ(robot, targets["App_Clip"])
+    # Approche the Cover to flip it
+    robotHelper.MoveJ(robot, targets["App_Cover"])
+    # Go into Flip Poition
+    robotHelper.MoveJ(robot, targets["Push_Cover"])
+    # Move the Cover until it flips
+    robotHelper.MoveL_toolframe(robot, 10,0,0)
+    robotHelper.MoveL_toolframe(robot, 0,0,-10)
+    robotHelper.MoveL_toolframe(robot, 60,0,0)
+
+def pushBattery(robot, targets, number):
+    # Get Battery1 out
+    if(number%2 == 0):
+        dir = 1
+    else:
+        dir = -1
+    robotHelper.close_gripper(robot)
+    robotHelper.MoveJ(robot, targets["App_Battery"+str(number)])
+    robotHelper.MoveL_toolframe(robot, 0,0,20)
+    robotHelper.MoveL_toolframe(robot, dir*3,0,-5)
+    robotHelper.MoveL_toolframe(robot, 0,0,-10)
+    robotHelper.MoveL_toolframe(robot, dir*-10,0,0)
+    robotHelper.MoveJ(robot, targets["App_Battery"+str(number)])
+
+def pickBattery(robot, targets, number):
+    robotHelper.open_gripper(robot)
+    robotHelper.MoveJ(robot, targets["App_Pick_Battery"+str(number)])
+    robotHelper.MoveJ(robot, targets["Pick_Battery"+str(number)])
+    robotHelper.close_gripper_soft(robot)
+    robotHelper.MoveJ(robot, targets["App_Pick_Battery"+str(number)])
+    # Get Battery1 to box
+    robotHelper.MoveJ(robot, targets["Box1"])
+    robotHelper.open_gripper(robot)
+
+def ejectBattery(targets, robot, batteries, toolInHand = False,  speedFactor = 1):
+    speed = 50*speedFactor
+    acceleration = 75*speedFactor
+    robot.setSpeed(speed,speed/2,acceleration,acceleration)
+
+    pairs = []
+    while len(batteries)>0:
+        sel1 = batteries[0]
+        sel2 = -1
+        for i in range(1,len(batteries)):
+            if(sel1%2 != batteries[i]%2):
+                sel2 = batteries[i]
+                break
+        batteries.remove(sel1)
+        if(sel2 != -1):
+            batteries.remove(sel2)
+        pairs.append([sel1,sel2])
+
+    for p in pairs:
+        print("Doing Batteries ",p)
+        # Get Tool 
+        #### Dont forget to take it out !!!
+        if(toolInHand == False):
+            Tool(targets, robot, True, speed_mult)
+            toolInHand = True
+       
+        # Get Battery1 out
+        pushBattery(robot,targets,p[0])
+        
+        # Get Battery2 out
+        if(p[1]!=-1):
+            pushBattery(robot,targets,p[1])
+
+        # Move Tool to Position 
+        Tool(targets, robot, False, speed_mult)
+        toolInHand = False
+        # Grip Battery1 
+        pickBattery(robot,targets,p[0])
+
+        # Grip Battery2
+        if(p[1] != -1):
+            pickBattery(robot,targets,p[1])
+
+   
 
 if __name__ == "__main__":
     use_kinect = True
     use_live = False
+    move_frame = False
+
+    
     if use_kinect :
         cam = PyK4A(
             Config(
@@ -242,7 +390,7 @@ if __name__ == "__main__":
     elif use_live:
         cam = cv2.VideoCapture(0)
 
-    robot, RDK = robotHelper.initUR()
+    robot, RDK, Ref_Frame = robotHelper.initUR(not move_frame)
     targets = robotHelper.getRdkTargets(RDK)
 
     speed_mult = 2
@@ -251,20 +399,36 @@ if __name__ == "__main__":
     robot.setPoseTool(robot.PoseTool())
     robot.setRounding(-1) # Set the rounding parameter (Also known as: CNT, APO/C_DIS, ZoneData, Blending radius, cornering, ...)
     robot.setSpeed(50*speed_mult) # Set linear speed in mm/s
-    robot.setAcceleration(150)
+    robot.setAcceleration(75*speed_mult)
     robot.setSpeedJoints(50*speed_mult)
-    robot.setAccelerationJoints(150)
+    robot.setAccelerationJoints(75*speed_mult)
 
     robotHelper.MoveJ(robot, targets["Home"])
-    robotHelper.activate_gripper(robot)
+    
+    #robotHelper.activate_gripper(robot)
 
-    while(True):
+
+
+    if move_frame == True:
+        pose = find_calculator(robot,cam)
+        Ref_Frame.setPose(robomath.TxyzRxyz_2_Pose(pose))
+        print("Moved Caculator Frame to: ", pose)
         robotHelper.MoveJ(robot, targets["Home"])
-        print(find_calculator(robot,cam))
+        # Teache Referenze Frame TxyzRxyz:
+        # cartesian [   -59.980772,  -571.301928,    44.326996,    -0.037727,     0.111536,    91.221479 ]
+            
+    # Remove the Cover
+    Cover(targets, robot, speed_mult)
+    # Get Batterys 1,2,3,4 out
+    ejectBattery(targets, robot, [1,2,3,4], True ,speed_mult)
+        
+    # Move Home    
+    robotHelper.MoveJ(robot, targets["Home"])
+        
         #calculateTransform(robot,cam,1)
-        if cv2.waitKey(1) == ord('q'):
-            break
-        input("press something to continue")
+        #if cv2.waitKey(1) == ord('q'):
+        #    break
+        #input("press something to continue")
     
     # # release video stream
     # if use_Azure_Kincet:
