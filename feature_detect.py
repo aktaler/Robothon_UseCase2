@@ -47,7 +47,7 @@ def SIFT_matcher(img1, img2, ContrastThreshold, EdgeThreshold):
             good.append(m)
 
     M = None
-
+    dst = None
     print("Anzahl good matches: {}".format(len(good)))
     if len(good) > MIN_MATCH_COUNT:
         src_pts = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
