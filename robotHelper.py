@@ -2,9 +2,49 @@ from robodk.robolink import *
 from robodk.robomath import *
 import numpy as np
 
-def MoveJ(robot, Target):
+def CalculatePoseFrame2Object(frame, part):
+    # Get both poses with respect to the station reference (wrt-world coordinate system)
+    framePoseAbs = frame.PoseAbs()
+    partPoseAbs = part.PoseAbs()
+    # Calculate the pose of the object relative to the reference
+    pose = framePoseAbs.inv() * partPoseAbs
+    return pose
+
+def getOptimalJoints(robot, target):
+    ik = robot.SolveIK_All(target, robot.PoseTool())
+    selConfigs = []
+    for j in ik:
+        conf = robot.JointsConfig(j).list()
+        rear  = conf[0] # 1 if Rear , 0 if Front
+        lower = conf[1] # 1 if Lower, 0 if Upper (elbow)
+        flip  = conf[2] # 1 if Flip , 0 if Non flip (Flip is usually when Joint 5 is negative)
+        if rear == 1 and lower == 0 and flip == 1:
+            #print("Config: ",conf, j)
+            #print("Caculated Joints Postion: ", j)
+            selConfigs.append(j)
+    #print("Found Configs: ", len(selConfigs))
+    selConfigsNp = np.array(selConfigs)
+    currJoints = robot.Joints()
+    #print("Configs:", selConfigs)
+    #print("Current Joint: ",currJoints)
+    jointWeights = [4,1,1,3,2,1]
+    deltaConfigs = (selConfigsNp[:,:6] - currJoints)**2
+    for d in deltaConfigs:
+        for i in range(6):
+            d[i] = d[i]*jointWeights[i]
+    normConfigs = np.sqrt(np.sum(deltaConfigs,axis=1))
+    #print("Weights:", normConfigs)
+    selJoint = selConfigs[np.argmin(normConfigs)]
+    #print("Selected Joint is: ", selJoint)
+    return selJoint
+
+def MoveJ(robot, Target, unwind = False):
+    global UR5e_Base
+    optJoints= getOptimalJoints(robot, CalculatePoseFrame2Object(UR5e_Base,Target))
+    if(unwind):
+        optJoints[5] = np.array(Target.Joints())[0,5]
     robot.setPoseFrame(Target.Parent())
-    robot.MoveJ(Target.Joints())
+    robot.MoveJ(optJoints)
     time.sleep(0.1)
 
 def MoveL(robot, Target):
@@ -107,6 +147,8 @@ def getRdkTargets(RDK):
     Returns:
         Dictionary containing the retrieved targets
     """
+    global UR5e_Base
+
     targets =  {}
     #add your targets with targets["Name"] = RDK.Item("RDK_NAME")
     # Home Position
@@ -137,7 +179,6 @@ def getRdkTargets(RDK):
     targets["App_Pick_Battery3"] = RDK.Item('App_Pick_Battery3')
     targets["App_Pick_Battery4"] = RDK.Item('App_Pick_Battery4')
 
-
-
+    UR5e_Base = RDK.Item('UR5e Base')
     return targets
     

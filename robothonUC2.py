@@ -108,7 +108,7 @@ def device_localisation(Scene_Image):
     masked = cv2.bitwise_and(resized2,mask)
     masked = cv2.cvtColor(masked, cv2.COLOR_BGR2GRAY)
     masked = cv2.threshold(masked, 80, 255, cv2.THRESH_BINARY)[1]
-    kernel = np.ones((int(22*scale_percent/100),int(22*scale_percent/100)),np.uint8) #TODO: Maybe 10 is too radical?
+    kernel = np.ones((int(18*scale_percent/100),int(18*scale_percent/100)),np.uint8) #TODO: Maybe 10 is too radical?
     masked = cv2.morphologyEx(masked, cv2.MORPH_CLOSE, kernel) #close gaps (black points) in the picture with a quite aggressive 20 pixel wide kernel. In many cases this can remove the Velcro
     #masked = cv2.bitwise_not(masked)
     cv2.imshow("ErgebnisMask", cv2.resize(masked, (1920, 1080))) #cv2.resize(newMask, (1920, 1080)))
@@ -169,13 +169,15 @@ def calculateTransform(robot, cam, numPics):
     cmat = cam.calibration.get_camera_matrix(1)
     dist = cam.calibration.get_distortion_coefficients(1)
     rubberCenters = []
-    for i in range(numPics):
+    i = 0
+    while(i<=numPics):
         img = get_image(cam=cam)
         cv2.imshow("Image", cv2.resize(img, (1600,900)))
         cv2.waitKey(100)
         rubberPoints = device_localisation(img)
         if rubberPoints is not None and len(rubberPoints) == 4:
             rubberCenters.append(rubberPoints)
+            i+=1
     rubberCenters = np.average(rubberCenters, axis=0)
     if rubberCenters is None:
         print("No valid pictures found...")
@@ -196,8 +198,17 @@ def calculateTransform(robot, cam, numPics):
     M_CAL2CAM[2,:2], M_CAL2CAM[:2,2] = [0,0], [0,0]
     M_CAL2CAM[:3, 3:] = tvec
     print(M_CAL2CAM)
-    M_CAM2TOOL = np.array([[1,  0, 0,  33.10616],
-                        [0, 1, 0, 60.94732],
+    # M_CAM2TOOL = np.array([[1,  0, 0,  33.10616],
+    #                     [0, 1, 0, 60.94732],
+    #                     [0, 0, 1, -53.34756],
+    #                     [0,0,0,1]])
+    # M_CAM2TOOL = np.array([[0.99999425,  0.00277953, -0.00194188, 32.37808],  #new calib
+    #                         [-0.00282741,  0.99968078, -0.02510677, 60.58989],
+    #                         [ 0.00187148,  0.02511211,  0.99968289, -53.34756],
+    #                         [0,0,0,1]])
+
+    M_CAM2TOOL = np.array([[1,  0, 0,  32.37808], #new calib with removed rot
+                        [0, 1, 0,  60.58989],
                         [0, 0, 1, -53.34756],
                         [0,0,0,1]])
 
@@ -210,10 +221,12 @@ def calculateTransform(robot, cam, numPics):
     calc_pose = robomath.Pose_2_TxyzRxyz(np.matmul(M,calc_corner))
 
     calc_pose[2] = 44.326996 #TODO: fix the offset again?
-    return calc_pose
+    print("posetransformm:",calc_pose)
+    
+    return calc_pose, rubberPoints
 
 def find_calculator(robot,cam):
-    pose = calculateTransform(robot,cam,2)
+    pose, rubberpoints = calculateTransform(robot,cam,2)
     print(pose)
     rPose = np.array(robomath.Pose_2_TxyzRxyz(robot.Pose()))
 
@@ -224,9 +237,138 @@ def find_calculator(robot,cam):
     cam_offset = robomath.TxyzRxyz_2_Pose([-55,0,0,0,0,0])
     robot.MoveJ(rPose*cam_offset)
     time.sleep(0.5)
-    pose = calculateTransform(robot,cam,2)
-    return pose
+    pose, _ = calculateTransform(robot,cam,2)
+    print("pose findCalc:",pose)
+
+    return pose, rubberpoints
+
+def find_batterys(Points, cam , robot, targets):
+    ### Move to Picture Position
+    robotHelper.MoveJ(robot, targets["Home"])
+    time.sleep(1)
+    ### Take piture
+    img = get_image(cam)
+
+    l1 = Points[0] - Points[1]
+    l2 = Points[3] - Points[2]
+    #T0 = Points[1] + 1.07 * l1
+    #T3 = Points[2] + 1.07 * l2
+    #T1 = Points[1] + 0.73 * l1
+    #T2 = Points[2] + 0.73 * l2
+    # Create the Maske for the 4 Batterys
+    T10 = Points[1] + 0.73 * l1
+    T20 = Points[2] + 0.73 * l2
+    T11 = Points[1] + (0.73 + 0.085) * l1
+    T21 = Points[2] + (0.73 + 0.085) * l2
+    T12 =  Points[1] + (0.73 + (2*0.085)) * l1
+    T22 =  Points[2] + (0.73 + (2*0.085)) * l2
+    T13 =  Points[1] + (0.73 + (3*0.085)) * l1
+    T23 = Points[2] + (0.73 + (3*0.085)) * l2
+    T14 = Points[1] + 1.07 * l1
+    T24 = Points[2] + 1.07 * l2
+
+    Corners1 = np.array([T10, T11, T21, T20]).astype(int)
+    Corners2 = np.array([T11, T12, T22, T21]).astype(int)
+    Corners3 = np.array([T12, T13, T23, T22]).astype(int)
+    Corners4 = np.array([T13, T14, T24, T23]).astype(int)
+
+    #cv2.circle(img, (int(T10[0]),int(T10[1])), 5, (255,0,255),-1)
+    #cv2.circle(img, (int(T11[0]),int(T11[1])), 5, (255,0,255),-1)
+    #cv2.circle(img, (int(T20[0]),int(T20[1])), 5, (255,0,255),-1)
+    #cv2.circle(img, (int(T21[0]),int(T21[1])), 5, (255,0,255),-1)
+    #Corners = np.array([T0, T1, T2, T3]).astype(int)
+    #print("Corners: ", Corners)
+    #cv2.drawContours(img, [Corners], 0, (255,0,0), -1)
+
+    #gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    #mask = np.zeros_like(img)
+    #cv2.fillPoly(mask, [np.int32(Corners)], (255,255,255))
+    #masked = cv2.bitwise_and(img,mask)
+    #masked = cv2.cvtColor(masked, cv2.COLOR_BGR2GRAY)
+    #masked = cv2.threshold(masked, 80, 255, cv2.THRESH_BINARY)[1]
+
+    #contours, __ = cv2.findContours(masked, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    #print("Contours: ", contours)
+    #contours = cv2.drawContours(img, contours, 0 ,(255,0,0),5)
+    #kernel = np.ones((int(10),int(10)),np.uint8) #TODO: Maybe 10 is too radical?
+    #lower = np.array([0,0,0])
+    #upper = np.array([120,255,255])
+
+    mask1 = np.zeros_like(img)
+    cv2.fillPoly(mask1, [np.int32(Corners1)], (255,255,255))
+    masked1 = cv2.bitwise_and(img,mask1)
+    masked1 = cv2.cvtColor(masked1, cv2.COLOR_BGR2GRAY)
+    #hsv1 = cv2.inRange(masked1, lower, upper)
+    masked1 = cv2.threshold(masked1, 80, 255, cv2.THRESH_BINARY)[1]
+    #masked1 = cv2.morphologyEx(masked1, cv2.MORPH_CLOSE, kernel)
+    mean1 = np.mean(masked1)
+    mask1 = cv2.bitwise_not(mask1)
+    #mean11 = cv2.meanStdDev(masked1, mask1)
+    #a = []
+    #masked11 = np.ma.masked_where(mask1.all == 0 and masked1.all == 0, masked1 )
+    #masked11 = np.mean(masked11) 
     
+    
+    mask2 = np.zeros_like(img)
+    cv2.fillPoly(mask2, [np.int32(Corners2)], (255,255,255))
+    masked2 = cv2.bitwise_and(img,mask2)
+    masked2 = cv2.cvtColor(masked2, cv2.COLOR_BGR2GRAY)
+    #hsv2 = cv2.inRange(masked2, lower, upper)
+    masked2 = cv2.threshold(masked2, 80, 255, cv2.THRESH_BINARY)[1]
+    #masked2 = cv2.morphologyEx(masked2, cv2.MORPH_CLOSE, kernel)
+    mean2 = np.mean(masked2)
+    
+    mask3 = np.zeros_like(img)
+    cv2.fillPoly(mask3, [np.int32(Corners3)], (255,255,255))
+    masked3 = cv2.bitwise_and(img,mask3)
+    masked3 = cv2.cvtColor(masked3, cv2.COLOR_BGR2GRAY)
+    #hsv3 = cv2.inRange(masked3, lower, upper)
+    masked3 = cv2.threshold(masked3, 80, 255, cv2.THRESH_BINARY)[1]
+    #masked3 = cv2.morphologyEx(masked3, cv2.MORPH_CLOSE, kernel)
+    mean3 = np.mean(masked3)
+    
+    mask4 = np.zeros_like(img)
+    cv2.fillPoly(mask4, [np.int32(Corners4)], (255,255,255))
+    masked4 = cv2.bitwise_and(img,mask4)
+    masked4 = cv2.cvtColor(masked4, cv2.COLOR_BGR2GRAY)
+    #hsv4 = cv2.inRange(masked4, lower, upper)
+    masked4 = cv2.threshold(masked4, 80, 255, cv2.THRESH_BINARY)[1]
+    #masked4 = cv2.morphologyEx(masked4, cv2.MORPH_CLOSE, kernel)
+    mean4 = np.mean(masked4)
+
+    maxVal = np.max([mean1, mean2, mean3, mean4]) * 2/3 
+    limit = max(maxVal, 0.3)
+    
+    Battery = []
+    if mean1 < limit:
+        Battery.append(1)
+        cv2.drawContours(img, [Corners1], 0, (0,0,255), 3)
+    if mean2 < limit:
+        Battery.append(2)
+        cv2.drawContours(img, [Corners2], 0, (0,0,255), 3)
+    if mean3 < limit:
+        Battery.append(3)
+        cv2.drawContours(img, [Corners3], 0, (0,0,255), 3)
+    if mean4 < limit:
+        Battery.append(4)
+        cv2.drawContours(img, [Corners4], 0, (0,0,255), 3)
+
+    print("Mean Value 1: ", mean1, " 2: ", mean2, " 3: ", mean3, " 4: ", mean4 )
+    print("Battery: ", Battery)
+
+    cv2.imshow("Image", cv2.resize(img, (1600,900)))
+    #cv2.waitKey(0)
+    #cv2.imshow("Mask1", cv2.resize(mask1, (1600,900)))
+    cv2.imshow("Battery1", cv2.resize(masked1, (1600,900)))
+    cv2.imshow("Battery2", cv2.resize(masked2, (1600,900)))
+    cv2.imshow("Battery3", cv2.resize(masked3, (1600,900)))
+    cv2.imshow("Battery4", cv2.resize(masked4, (1600,900)))
+    cv2.waitKey(0)
+    #cv2.imshow("Battery", cv2.resize(masked, (1600,900)))
+    
+
+    return Battery
+
 ### Task Positions
 def Tool(targets, robot, get ,speedFactor = 1):
     #### Pick the tool form its place or place the tool at the place
@@ -250,7 +392,7 @@ def Tool(targets, robot, get ,speedFactor = 1):
     robotHelper.MoveJ(robot, targets["Pick_Tool"])
     # Gripper
     if get == True:
-        robotHelper.close_gripper_soft(robot)
+        robotHelper.close_gripper(robot)
     elif get == False:
         robotHelper.open_gripper_soft(robot)
     # App Tool
@@ -290,11 +432,11 @@ def Cover(targets, robot, speedFactor = 1):
     #robotHelper.MoveJ(robot, targets["Push_Clip"])
     robotHelper.Rotate_toolframe(robot, 0, 5*np.pi/180 ,0)
     robotHelper.MoveL_toolframe(robot, 0,0,-10)
-    robotHelper.MoveJ(robot, targets["App_Clip"])
+    robotHelper.MoveL(robot, targets["App_Clip"])
     # Approche the Cover to flip it
-    robotHelper.MoveJ(robot, targets["App_Cover"])
+    robotHelper.MoveL(robot, targets["App_Cover"])
     # Go into Flip Poition
-    robotHelper.MoveJ(robot, targets["Push_Cover"])
+    robotHelper.MoveL(robot, targets["Push_Cover"])
     # Move the Cover until it flips
     robotHelper.MoveL_toolframe(robot, 10,0,0)
     robotHelper.MoveL_toolframe(robot, 0,0,-10)
@@ -370,9 +512,9 @@ def ejectBattery(targets, robot, batteries, toolInHand = False,  speedFactor = 1
    
 
 if __name__ == "__main__":
-    use_kinect = True
-    use_live = False
-    move_frame = False
+    use_kinect = True       #Use PyK4A (Azure Kinect) for video stream capturing
+    use_live = False        #Use OpenCV.VideoCapture() for video stream capturing
+    move_frame = True     #Ture = attempt to move real robot
 
     
     if use_kinect :
@@ -393,7 +535,7 @@ if __name__ == "__main__":
     robot, RDK, Ref_Frame = robotHelper.initUR(not move_frame)
     targets = robotHelper.getRdkTargets(RDK)
 
-    speed_mult = 2
+    speed_mult = 1.5
 
     robot.setPoseFrame(robot.PoseFrame())
     robot.setPoseTool(robot.PoseTool())
@@ -404,23 +546,27 @@ if __name__ == "__main__":
     robot.setAccelerationJoints(75*speed_mult)
 
     robotHelper.MoveJ(robot, targets["Home"])
-    
+    time.sleep(1)
     #robotHelper.activate_gripper(robot)
-
-
-
+    
     if move_frame == True:
-        pose = find_calculator(robot,cam)
+        pose, points = find_calculator(robot,cam)
+        print("Pose: ", pose)
+        print("Points: ", points)
         Ref_Frame.setPose(robomath.TxyzRxyz_2_Pose(pose))
         print("Moved Caculator Frame to: ", pose)
         robotHelper.MoveJ(robot, targets["Home"])
         # Teache Referenze Frame TxyzRxyz:
         # cartesian [   -59.980772,  -571.301928,    44.326996,    -0.037727,     0.111536,    91.221479 ]
-            
+    input()
+    sys.exit()
     # Remove the Cover
     Cover(targets, robot, speed_mult)
+
+    batterys = find_batterys(points, cam, robot, targets)
+
     # Get Batterys 1,2,3,4 out
-    ejectBattery(targets, robot, [1,2,3,4], True ,speed_mult)
+    ejectBattery(targets, robot, batterys, True ,speed_mult)
         
     # Move Home    
     robotHelper.MoveJ(robot, targets["Home"])
