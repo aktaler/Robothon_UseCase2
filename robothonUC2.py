@@ -66,7 +66,7 @@ def get_image(cam, use_kinect=True, use_live=False):
         Scene_Image = cv2.imread("Bilder/Szene/Szene1.jpg", 1)
     return Scene_Image
 
-def device_localisation(Scene_Image):
+def device_localisation(Scene_Image, scaling=1):
     """
     Get Image from Camera stream, maybe resize it and pass it to a module
     """
@@ -148,7 +148,8 @@ def device_localisation(Scene_Image):
     if(len(rubber)>=4):
         for h in rubber:
             #print(cv2.contourArea(h))
-            if(cv2.contourArea(h)>250):
+            if(cv2.contourArea(h)>250*scaling):
+                print(cv2.contourArea(h))
                 M = cv2.moments(h) #get the contour moment
                 rubberCenters.append([int(M["m10"] / M["m00"]),int(M["m01"] / M["m00"])]) #calculate the center
     else:
@@ -199,7 +200,7 @@ def orderCounterclockwise(pts, refpt):
     normAng = np.mod(np.subtract(angs,angs[minId]),360) #normalize the angle by the angle of the starting point
     return [x for _, x in sorted(zip(normAng, pts))] #return sorted list
 
-def calculateTransform(robot, cam, numPics):
+def calculateTransform(robot, cam, numPics, scaling=1):
     cmat = cam.calibration.get_camera_matrix(1)
     dist = cam.calibration.get_distortion_coefficients(1)
     #cmat = np.array([[1.85182827e+03, 0.00000000e+00,1.93774986e+03],[0.00000000e+00, 1.85339297e+03, 1.07281515e+03],[0.00000000e+00, 0.00000000e+00, 1.00000000e+00]])
@@ -210,7 +211,7 @@ def calculateTransform(robot, cam, numPics):
         img = get_image(cam=cam)
         cv2.imshow("Image", cv2.resize(img, (1600,900)))
         cv2.waitKey(100)
-        rubberPoints = device_localisation(img)
+        rubberPoints = device_localisation(img,scaling)
         print(rubberPoints)
         if rubberPoints is not None and len(rubberPoints) == 5:
             rubberCenters.append(rubberPoints)
@@ -521,12 +522,12 @@ def Cover(targets, robot, speedFactor = 1):
     robotHelper.MoveL(robot, targets["Push_Cover"])
 
     # Move the Cover until it flips
-    robotHelper.MoveL_toolframe(robot, 0,0,-5)
+    #robotHelper.MoveL_toolframe(robot, 0,0,-5)
     
     #robotHelper.MoveL_toolframe(robot, 2,0,0)
-    robotHelper.MoveL_toolframe(robot, 4,0,0)
-    robotHelper.MoveL_toolframe(robot, 0,0,-5)
-    robotHelper.MoveL_toolframe(robot, 60,0,0)
+    robotHelper.MoveL_toolframe(robot, 50,0,0)
+    #robotHelper.MoveL_toolframe(robot, 0,0, 5)
+    robotHelper.MoveL_toolframe(robot, 0,0,10)
 
 def pushBattery(robot, targets, number):
     # Get Battery1 out
