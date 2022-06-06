@@ -109,6 +109,12 @@ def open_gripper_soft(robot):
     robot.setDO(6,1)
     time.sleep(0.5)
 
+def Snap_gripper(robot,delay):
+    robot.setDO(7,0)
+    robot.setDO(6,1)
+    time.sleep(delay)
+    robot.setDO(6,0)
+
 def initUR(simulate = False):
     """Initializes UR5e Robodk connection
 
@@ -153,6 +159,7 @@ def getRdkTargets(RDK):
     #add your targets with targets["Name"] = RDK.Item("RDK_NAME")
     # Home Position
     targets["Home"] = RDK.Item('Home_target')
+    targets["Second_Home"] = RDK.Item('Second_Home_target')
     # Tool Position
     targets["App_Tool"] = RDK.Item('App_Tool')
     targets["Pick_Tool"] = RDK.Item('Pick_Tool')
@@ -179,6 +186,15 @@ def getRdkTargets(RDK):
     targets["App_Pick_Battery3"] = RDK.Item('App_Pick_Battery3')
     targets["App_Pick_Battery4"] = RDK.Item('App_Pick_Battery4')
 
+    # Reload the tool 
+    targets["App_Reload_Tool"] = RDK.Item('App_Reload_Tool_target')
+    targets["Reload_Tool"] = RDK.Item('Reload_Tool_target')
+
+
     UR5e_Base = RDK.Item('UR5e Base')
     return targets
     
+def Run_prog(RDK,program):
+    RDK.Item(program).RunProgram()
+    while RDK.Item(program).Busy():
+        pause(0.1)

@@ -2,7 +2,9 @@
 object detection for robothon use case
 """
 from json import tool
+from os import system
 from tkinter import Frame
+from turtle import delay
 import cv2
 import numpy as np
 from datetime import datetime
@@ -14,6 +16,34 @@ import robotHelper
 from robodk import robomath
 import time
 import sys
+
+
+def moveToContact(robot,rtde_connection, maxForce):
+    global HOST
+    global PORT
+    
+    robot.setPoseFrame(UR5e_Base)
+    #print("I am doing a Spiral Script")
+    robot.setDO(5,0)
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect((HOST, PORT))
+    f = open("moveToContact.script", "rb")   #Robotiq Gripper
+    for l in f:
+        stringL = l.decode()
+        #print(stringL)
+        if ("press_force =" in stringL):
+            print(l.decode())
+            l = ("press_force = "+str(maxForce)).encode()
+        s.send(l)
+    
+    while(not rtde_connection.getDigitalOutState(5)): #wait until DO5 is set
+        robot.setJoints([ji * 180.0/pi for ji in rtde_connection.getTargetQ()])
+        #time.sleep(0.1)
+    
+    s.close()
+    robot.ConnectSafe()
+    time.sleep(0.2)
+    robot.setDO(5,0)
 
 def get_image(cam, use_kinect=True, use_live=False):
     # start video
@@ -82,16 +112,16 @@ def device_localisation(Scene_Image):
     Display interim images
     """
 
-    # cv2.imshow("Blurred1", blurred1)
-    # cv2.imshow("Blurred2", blurred2)
-    # cv2.imshow("Threshold1", threshold1)
-    # cv2.imshow("Threshold2", threshold2)
+    #cv2.imshow("Blurred1", blurred1)
+    #cv2.imshow("Blurred2", blurred2)
+    #cv2.imshow("Threshold1", threshold1)
+    #cv2.imshow("Threshold2", threshold2)
 
     """
     Different modul functions
     """
     result_image, h_matrix, edge_points = SIFT_matcher(blurred1, blurred2, ContrastThreshold=0.003, EdgeThreshold=150)
-
+ 
     """
     Matrix Layout =    (cosAlpha    -sinAlpha   transX
                         sinAlpha    cosAlpha    transY
@@ -128,8 +158,12 @@ def device_localisation(Scene_Image):
         cv2.circle(result_image,p,3,[0,255,0],-1)
         cv2.putText(result_image, str(idx),p, cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0))
     centerPoint = np.divide(np.sum(rubberCenters, axis=0), len(rubberCenters)) #calculate the middle point 
+    print(rubberCenters, centerPoint)
+    rubberCenters = np.append(rubberCenters, [centerPoint], axis = 0)
     cv2.circle(result_image,centerPoint.astype(int),3,[0,255,0],-1)
     
+    cv2.line(result_image,(0,int(result_image.shape[0]/2)),(result_image.shape[1],int(result_image.shape[0]/2)),(255,0,0),1)
+    cv2.line(result_image,(int(result_image.shape[1]/2),0),(int(result_image.shape[1]/2),result_image.shape[0]),(255,0,0),1)
     cv2.imshow("Ergebnis", cv2.resize(result_image, (1920, 1080)))
     print("Durchlaufzeit SIFT Detection: " + str(datetime.now() - startTime))
     #print("Homographie Matrix: \n{}\n Transformed Edge Points:\n{}\n".format(h_matrix, edge_points))
@@ -168,6 +202,8 @@ def orderCounterclockwise(pts, refpt):
 def calculateTransform(robot, cam, numPics):
     cmat = cam.calibration.get_camera_matrix(1)
     dist = cam.calibration.get_distortion_coefficients(1)
+    #cmat = np.array([[1.85182827e+03, 0.00000000e+00,1.93774986e+03],[0.00000000e+00, 1.85339297e+03, 1.07281515e+03],[0.00000000e+00, 0.00000000e+00, 1.00000000e+00]])
+    #dist = np.array([[ 0.09492541, -0.06206038, -0.0012638,   0.00230549, -0.01368713]])
     rubberCenters = []
     i = 0
     while(i<=numPics):
@@ -175,20 +211,27 @@ def calculateTransform(robot, cam, numPics):
         cv2.imshow("Image", cv2.resize(img, (1600,900)))
         cv2.waitKey(100)
         rubberPoints = device_localisation(img)
-        if rubberPoints is not None and len(rubberPoints) == 4:
+        print(rubberPoints)
+        if rubberPoints is not None and len(rubberPoints) == 5:
             rubberCenters.append(rubberPoints)
             i+=1
     rubberCenters = np.average(rubberCenters, axis=0)
+    
     if rubberCenters is None:
         print("No valid pictures found...")
         return None
     # Calculate Calculator to Camera transformation
     feetHeight = 49
     feetWidth = 124
-    objectpoints = np.array([[0, 0, 0],
-                            [feetWidth, 0, 0],
-                            [feetWidth, feetHeight, 0],
-                            [0, feetHeight, 0]])
+    # objectpoints = np.array([[0, 0, 0],
+    #                         [feetWidth, 0, 0],
+    #                         [feetWidth, feetHeight, 0],
+    #                         [0, feetHeight, 0]])
+    objectpoints = np.array([[-feetWidth/2, -feetHeight/2, 0],
+                            [feetWidth/2, -feetHeight/2, 0],
+                            [feetWidth/2, feetHeight/2, 0],
+                            [-feetWidth/2, feetHeight/2, 0],
+                            [0,0,0]])
     _, rvec, tvec = cv2.solvePnP(objectpoints.astype(np.double), rubberCenters.astype(np.double), cmat, dist, flags=cv2.SOLVEPNP_EPNP) #PNP gives us trans and rot to transform from taskboard to camera
     
     R, _ = cv2.Rodrigues(rvec)
@@ -207,8 +250,13 @@ def calculateTransform(robot, cam, numPics):
     #                         [ 0.00187148,  0.02511211,  0.99968289, -53.34756],
     #                         [0,0,0,1]])
 
-    M_CAM2TOOL = np.array([[1,  0, 0,  32.37808], #new calib with removed rot
-                        [0, 1, 0,  60.58989],
+    # M_CAM2TOOL = np.array([[1,  0, 0,  32.37808], #new calib with removed rot
+    #                     [0, 1, 0,  60.58989],
+    #                     [0, 0, 1, -53.34756],
+    #                     [0,0,0,1]])
+
+    M_CAM2TOOL = np.array([[1,  0, 0,  33.10616],
+                        [0, 1, 0, 60.94732],
                         [0, 0, 1, -53.34756],
                         [0,0,0,1]])
 
@@ -226,7 +274,7 @@ def calculateTransform(robot, cam, numPics):
     return calc_pose, rubberPoints
 
 def find_calculator(robot,cam):
-    pose, rubberpoints = calculateTransform(robot,cam,2)
+    pose, _ = calculateTransform(robot,cam,2)
     print(pose)
     rPose = np.array(robomath.Pose_2_TxyzRxyz(robot.Pose()))
 
@@ -234,17 +282,31 @@ def find_calculator(robot,cam):
     rPose[1] = pose[1] #+ sin(-pose[5])*camOffset[0] + sin(-pose[5])*camOffset[1]
     rPose[5] = -pose[5] + math.pi #+pi because it cant really turn 180 deg for some reason
     rPose = robomath.TxyzRxyz_2_Pose(rPose)
-    cam_offset = robomath.TxyzRxyz_2_Pose([-55,0,0,0,0,0])
-    robot.MoveJ(rPose*cam_offset)
+    cam_offset = robomath.TxyzRxyz_2_Pose([-18,-34,0,0,0,0])
+    robot.MoveL(rPose*cam_offset)
+    #targets["Second_Home"].setPose(rPose*cam_offset)
+    #robotHelper.MoveJ(robot, targets["Second_Home"])
     time.sleep(0.5)
-    pose, _ = calculateTransform(robot,cam,2)
+    
+    pose, rubberpoints = calculateTransform(robot,cam,2)
+    rPose = np.array(robomath.Pose_2_TxyzRxyz(robot.Pose()))
+
+    rPose[0] = pose[0] #+ cos(-pose[5])*camOffset[0] - sin(-pose[5])*camOffset[1]
+    rPose[1] = pose[1] #+ sin(-pose[5])*camOffset[0] + sin(-pose[5])*camOffset[1]
+    rPose[5] = -pose[5] + math.pi #+pi because it cant really turn 180 deg for some reason
+    rPose = robomath.TxyzRxyz_2_Pose(rPose)
+    cam_offset = robomath.TxyzRxyz_2_Pose([-32,-40,0,0,0,0])
+    targets["Second_Home"].setPose(rPose*cam_offset)
+    robot.MoveL(rPose*cam_offset)
+    time.sleep(0.5)
+    pose, rubberpoints = calculateTransform(robot,cam,2)
     print("pose findCalc:",pose)
 
     return pose, rubberpoints
 
 def find_batterys(Points, cam , robot, targets):
     ### Move to Picture Position
-    robotHelper.MoveJ(robot, targets["Home"])
+    robotHelper.MoveJ(robot, targets["Second_Home"])
     time.sleep(1)
     ### Take piture
     img = get_image(cam)
@@ -340,6 +402,7 @@ def find_batterys(Points, cam , robot, targets):
     limit = max(maxVal, 0.3)
     
     Battery = []
+
     if mean1 < limit:
         Battery.append(1)
         cv2.drawContours(img, [Corners1], 0, (0,0,255), 3)
@@ -356,14 +419,16 @@ def find_batterys(Points, cam , robot, targets):
     print("Mean Value 1: ", mean1, " 2: ", mean2, " 3: ", mean3, " 4: ", mean4 )
     print("Battery: ", Battery)
 
+    cv2.destroyAllWindows()
     cv2.imshow("Image", cv2.resize(img, (1600,900)))
     #cv2.waitKey(0)
     #cv2.imshow("Mask1", cv2.resize(mask1, (1600,900)))
-    cv2.imshow("Battery1", cv2.resize(masked1, (1600,900)))
-    cv2.imshow("Battery2", cv2.resize(masked2, (1600,900)))
-    cv2.imshow("Battery3", cv2.resize(masked3, (1600,900)))
-    cv2.imshow("Battery4", cv2.resize(masked4, (1600,900)))
-    cv2.waitKey(0)
+    #cv2.imshow("Battery2", cv2.resize(masked2, (1600,900)))
+    #cv2.imshow("Battery3", cv2.resize(masked3, (1600,900)))
+    #cv2.imshow("Battery1", cv2.resize(masked1, (1600,900)))
+    #cv2.imshow("Battery4", cv2.resize(masked4, (1600,900)))
+    #cv2.waitKey(0)
+    cv2.destroyAllWindows()
     #cv2.imshow("Battery", cv2.resize(masked, (1600,900)))
     
 
@@ -398,6 +463,23 @@ def Tool(targets, robot, get ,speedFactor = 1):
     # App Tool
     robotHelper.MoveJ(robot, targets["App_Tool"])
 
+def Reload_tool(targets, robot,speedFactor = 1):
+    #### Re positon the tool 
+
+    speed = 50*speedFactor
+    acceleration = 75*speedFactor
+    robot.setSpeed(speed,speed/2,acceleration,acceleration)
+    # Gripper
+
+    # App reload positions
+    robotHelper.MoveJ(robot, targets["App_Reload_Tool"])
+    robotHelper.MoveJ(robot, targets["Reload_Tool"])
+    robotHelper.Snap_gripper(robot,0.05)
+    time.sleep(0.5)
+    robotHelper.MoveJ(robot, targets["App_Reload_Tool"])
+
+
+
 #def Box(targets, robot, Box, speedFactor = 1):
 #    #### Move Battery to Box 1 or 2
 #    #### for Box 1 Box == True, for Box 2 Box == False
@@ -430,16 +512,20 @@ def Cover(targets, robot, speedFactor = 1):
     robotHelper.MoveJ(robot, targets["Open_Clip"])
     # Open the Clip that the Cover is free
     #robotHelper.MoveJ(robot, targets["Push_Clip"])
+    robotHelper.MoveL_toolframe(robot, 2,0,0)
     robotHelper.Rotate_toolframe(robot, 0, 5*np.pi/180 ,0)
     robotHelper.MoveL_toolframe(robot, 0,0,-10)
     robotHelper.MoveL(robot, targets["App_Clip"])
     # Approche the Cover to flip it
     robotHelper.MoveL(robot, targets["App_Cover"])
-    # Go into Flip Poition
     robotHelper.MoveL(robot, targets["Push_Cover"])
+
     # Move the Cover until it flips
-    robotHelper.MoveL_toolframe(robot, 10,0,0)
-    robotHelper.MoveL_toolframe(robot, 0,0,-10)
+    robotHelper.MoveL_toolframe(robot, 0,0,-5)
+    
+    #robotHelper.MoveL_toolframe(robot, 2,0,0)
+    robotHelper.MoveL_toolframe(robot, 4,0,0)
+    robotHelper.MoveL_toolframe(robot, 0,0,-5)
     robotHelper.MoveL_toolframe(robot, 60,0,0)
 
 def pushBattery(robot, targets, number):
@@ -451,8 +537,9 @@ def pushBattery(robot, targets, number):
     robotHelper.close_gripper(robot)
     robotHelper.MoveJ(robot, targets["App_Battery"+str(number)])
     robotHelper.MoveL_toolframe(robot, 0,0,20)
-    robotHelper.MoveL_toolframe(robot, dir*3,0,-5)
-    robotHelper.MoveL_toolframe(robot, 0,0,-10)
+    robotHelper.MoveL_toolframe(robot, dir*3,0,0)
+
+    robotHelper.MoveL_toolframe(robot, 0,0,-15)
     robotHelper.MoveL_toolframe(robot, dir*-10,0,0)
     robotHelper.MoveJ(robot, targets["App_Battery"+str(number)])
 
@@ -515,7 +602,7 @@ if __name__ == "__main__":
     use_kinect = True       #Use PyK4A (Azure Kinect) for video stream capturing
     use_live = False        #Use OpenCV.VideoCapture() for video stream capturing
     move_frame = True     #Ture = attempt to move real robot
-
+    Simulate = False
     
     if use_kinect :
         cam = PyK4A(
@@ -532,10 +619,10 @@ if __name__ == "__main__":
     elif use_live:
         cam = cv2.VideoCapture(0)
 
-    robot, RDK, Ref_Frame = robotHelper.initUR(not move_frame)
+    robot, RDK, Ref_Frame = robotHelper.initUR( Simulate )
     targets = robotHelper.getRdkTargets(RDK)
 
-    speed_mult = 1.5
+    speed_mult = 1
 
     robot.setPoseFrame(robot.PoseFrame())
     robot.setPoseTool(robot.PoseTool())
@@ -555,22 +642,44 @@ if __name__ == "__main__":
         print("Points: ", points)
         Ref_Frame.setPose(robomath.TxyzRxyz_2_Pose(pose))
         print("Moved Caculator Frame to: ", pose)
-        robotHelper.MoveJ(robot, targets["Home"])
+        #robotHelper.MoveJ(robot, targets["Home"])
         # Teache Referenze Frame TxyzRxyz:
         # cartesian [   -59.980772,  -571.301928,    44.326996,    -0.037727,     0.111536,    91.221479 ]
-    input()
-    sys.exit()
+
+
+
+    #input()
+
+    #robotHelper.MoveJ(robot, targets["App_Battery1"])
+    #input()
+    #sys.exit()
     # Remove the Cover
     Cover(targets, robot, speed_mult)
+    #sys.exit()
+    cv2.destroyAllWindows()
+    #Reload_tool(targets, robot, speed_mult)
+
+    
+
+
 
     batterys = find_batterys(points, cam, robot, targets)
-
-    # Get Batterys 1,2,3,4 out
     ejectBattery(targets, robot, batterys, True ,speed_mult)
         
+
+    batterys2 = find_batterys(points, cam, robot, targets)
+    ejectBattery(targets, robot, batterys2, False ,speed_mult)
+
     # Move Home    
     robotHelper.MoveJ(robot, targets["Home"])
-        
+
+    ########### Test Block ################
+    #robotHelper.Run_prog(RDK,"Return_Tool")
+    #input()
+    cv2.destroyAllWindows()
+    sys.exit()    
+    #######################################
+    
         #calculateTransform(robot,cam,1)
         #if cv2.waitKey(1) == ord('q'):
         #    break
