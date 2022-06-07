@@ -166,6 +166,8 @@ def device_localisation(Scene_Image, scaling=1):
     cv2.line(result_image,(0,int(result_image.shape[0]/2)),(result_image.shape[1],int(result_image.shape[0]/2)),(255,0,0),1)
     cv2.line(result_image,(int(result_image.shape[1]/2),0),(int(result_image.shape[1]/2),result_image.shape[0]),(255,0,0),1)
     cv2.imshow("Ergebnis", cv2.resize(result_image, (1920, 1080)))
+    cv2.setWindowProperty("Ergebnis", cv2.WND_PROP_TOPMOST, 1)
+    cv2.moveWindow("Ergebnis", 1920,0)
     print("Durchlaufzeit SIFT Detection: " + str(datetime.now() - startTime))
     #print("Homographie Matrix: \n{}\n Transformed Edge Points:\n{}\n".format(h_matrix, edge_points))
     
@@ -422,6 +424,9 @@ def find_batterys(Points, cam , robot, targets):
 
     cv2.destroyAllWindows()
     cv2.imshow("Image", cv2.resize(img, (1600,900)))
+    cv2.setWindowProperty("Image", cv2.WND_PROP_TOPMOST, 1)
+    cv2.moveWindow("Image", 1920,0)
+    cv2.waitKey(10)
     #cv2.waitKey(0)
     #cv2.imshow("Mask1", cv2.resize(mask1, (1600,900)))
     #cv2.imshow("Battery2", cv2.resize(masked2, (1600,900)))
@@ -429,7 +434,7 @@ def find_batterys(Points, cam , robot, targets):
     #cv2.imshow("Battery1", cv2.resize(masked1, (1600,900)))
     #cv2.imshow("Battery4", cv2.resize(masked4, (1600,900)))
     #cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    #cv2.destroyAllWindows()
     #cv2.imshow("Battery", cv2.resize(masked, (1600,900)))
     
 
@@ -509,6 +514,7 @@ def Cover(targets, robot, speedFactor = 1):
     robotHelper.close_gripper(robot)
     # App Clip
     robotHelper.MoveJ(robot, targets["App_Clip"])
+    cv2.destroyAllWindows()
     # Go into Push Position for Clip
     robotHelper.MoveJ(robot, targets["Open_Clip"])
     # Open the Clip that the Cover is free
@@ -623,7 +629,7 @@ if __name__ == "__main__":
     robot, RDK, Ref_Frame = robotHelper.initUR( Simulate )
     targets = robotHelper.getRdkTargets(RDK)
 
-    speed_mult = 1
+    speed_mult = 2
 
     robot.setPoseFrame(robot.PoseFrame())
     robot.setPoseTool(robot.PoseTool())
@@ -635,7 +641,7 @@ if __name__ == "__main__":
 
     robotHelper.MoveJ(robot, targets["Home"])
     time.sleep(1)
-    #robotHelper.activate_gripper(robot)
+    robotHelper.activate_gripper(robot)
     
     if move_frame == True:
         pose, points = find_calculator(robot,cam)
