@@ -10,7 +10,7 @@ import numpy as np
 from datetime import datetime
 import math
 import pyk4a
-from pyk4a import PyK4A, Config
+from pyk4a import PyK4A, Config, K4AException
 from feature_detect import SIFT_matcher
 import robotHelper
 from robodk import robomath
@@ -167,7 +167,7 @@ def device_localisation(Scene_Image, scaling=1):
     cv2.line(result_image,(int(result_image.shape[1]/2),0),(int(result_image.shape[1]/2),result_image.shape[0]),(255,0,0),1)
     cv2.imshow("Ergebnis", cv2.resize(result_image, (1920, 1080)))
     cv2.setWindowProperty("Ergebnis", cv2.WND_PROP_TOPMOST, 1)
-    cv2.moveWindow("Ergebnis", 1920,0)
+    #cv2.moveWindow("Ergebnis", 1920,0)
     print("Durchlaufzeit SIFT Detection: " + str(datetime.now() - startTime))
     #print("Homographie Matrix: \n{}\n Transformed Edge Points:\n{}\n".format(h_matrix, edge_points))
     
@@ -621,8 +621,15 @@ if __name__ == "__main__":
                 synchronized_images_only=True,
             )
         )
-        cam.start()
-
+        
+        while(True):
+            try:
+                cam.start()
+                break
+            except K4AException as e:
+                print(e)
+                time.sleep(0.5)
+    
     elif use_live:
         cam = cv2.VideoCapture(0)
 
